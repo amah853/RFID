@@ -1,7 +1,7 @@
 /*
 * Arduino Door Lock Access Control Project
 *                
-* by Dejan Nedelkovski, www.HowToMechatronics.com
+* by Ahmad Mahrous
 * 
 * Library: MFRC522, https://github.com/miguelbalboa/rfid
 */
