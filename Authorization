@@ -33,7 +33,7 @@ void setup() {
   lcd.begin(16, 2);   // LCD screen
 
   // Prints the initial message
-  lcd.print("-No Master Tag!-");
+  lcd.print("-No Admin Card-");
   lcd.setCursor(0, 1);
   lcd.print("    SCAN NOW");
   // Waits until a master card is scanned
@@ -43,7 +43,7 @@ void setup() {
       masterTag = tagID; // Sets the master tag
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("Master Tag Set!");
+      lcd.print("Admin Tag Set!");
     }
   }
   successRead = false;
