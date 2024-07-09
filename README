@@ -1,4 +1,8 @@
 This is the code for a *basic* rfid card access system. DO NOT USE IN ANY CRTICAL INFUSTRUCTURE.
 
+## BASIC RFID 
 Authorization sets the auth level.
-"code without door and master key" is the door but without the motor code.
+								"code without door and master key" is the door but without the motor code.
+
+## MEMBERSHIP FORMAT
+This program uses a "membership" format where you need to renew the membership every month. 
