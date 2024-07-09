@@ -1,0 +1,4 @@
+This is the code for a *basic* rfid card access system. DO NOT USE IN ANY CRTICAL INFUSTRUCTURE.
+
+Authorization sets the auth level.
+"code without door and master key" is the door but without the motor code.
