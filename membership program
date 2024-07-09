@@ -1,0 +1,347 @@
+
+#include <SPI.h>
+#include <MFRC522.h>
+#include <EEPROM.h>
+#include <LiquidCrystal.h>
+
+#define RST_PIN 9
+#define SS_PIN 10
+#define ACCESS_GRANTED_PIN 7
+
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+#define COOLDOWN_PERIOD 1200000 // 20 minutes in milliseconds
+
+unsigned long lastAccessTime = 0;
+
+byte masterCard[4];
+byte adminCard[4];
+bool masterCardSet = false;
+bool adminCardSet = false;
+bool entryEnabled = true;
+bool terminalBusy = false;
+
+struct MembershipCard {
+  byte uid[4];
+  char name[20]; // Adjust size for name
+  byte validMonth; // Month validity (1-12)
+  byte validYear; // Year validity (YY)
+  unsigned long lastEntryTime;
+};
+
+MembershipCard membershipCards[50]; // Increase size or use dynamic allocation if needed
+int membershipCardCount = 0;
+
+// Current month and year (adjust these based on your system)
+const int CURRENT_MONTH = 7; // Example: July (7th month)
+const int CURRENT_YEAR = 24; // Example: 2024 (YY)
+
+bool setupInProgress = false;
+
+void setup() {
+  pinMode(ACCESS_GRANTED_PIN, OUTPUT);
+  digitalWrite(ACCESS_GRANTED_PIN, LOW);
+
+  Serial.begin(9600);
+  lcd.begin(16, 2); // Adjust for your LCD dimensions
+  SPI.begin();
+  mfrc522.PCD_Init();
+
+  // Check if master and admin cards are set
+  EEPROM.get(0, masterCard);
+  EEPROM.get(4, adminCard);
+  masterCardSet = !isEmptyCard(masterCard);
+  adminCardSet = !isEmptyCard(adminCard);
+
+  if (!masterCardSet) {
+    Serial.println("Set master card");
+    setupInProgress = true;
+  } else if (!adminCardSet) {
+    Serial.println("Tap admin card");
+    setupInProgress = true;
+  } else {
+    lcd.begin(16, 2); // Re-initialize LCD for member display
+    lcd.print("-SCAN CARD HERE-");
+  }
+}
+
+void loop() {
+  if (setupInProgress) {
+    byte readCardUID[4];
+    if (readCard(readCardUID)) {
+      if (!masterCardSet) {
+        EEPROM.put(0, readCardUID);
+        masterCardSet = true;
+        Serial.println("Master card set.");
+        lcd.clear();
+        lcd.print("Master card set.");
+        delay(2000);
+        lcd.clear();
+        lcd.print("Tap admin card.");
+      } else if (!adminCardSet) {
+        if (!compareUID(readCardUID, masterCard)) {
+          EEPROM.put(4, readCardUID);
+          adminCardSet = true;
+          Serial.println("Admin card set.");
+          lcd.clear();
+          lcd.print("Admin card set.");
+          delay(2000);
+          lcd.clear();
+          lcd.print("System ready.");
+        } else {
+          Serial.println("Admin cannot be master.");
+          lcd.clear();
+          lcd.print("Admin cannot be master.");
+          delay(2000);
+          lcd.clear();
+          lcd.print("Tap admin card.");
+        }
+      }
+    }
+    return;
+  }
+
+  byte readCardUID[4];
+  if (readCard(readCardUID)) {
+    if (compareUID(readCardUID, masterCard)) {
+      // Master card actions
+      toggleEntryState();
+      // Implement logic here for clearing all memberships based on new requirements
+    } else if (compareUID(readCardUID, adminCard)) {
+      // Admin card actions
+      lcd.clear();
+      lcd.print("Tap a card to add.");
+      Serial.println("Tap a card to add.");
+      if (readCard(readCardUID)) {
+        addMembershipCard(readCardUID);
+      }
+    } else {
+      // Membership card actions
+      int cardIndex = findMembershipCard(readCardUID);
+      if (cardIndex != -1 && entryEnabled) {
+        if (membershipCards[cardIndex].validMonth == CURRENT_MONTH &&
+            membershipCards[cardIndex].validYear == CURRENT_YEAR) {
+          if (millis() - membershipCards[cardIndex].lastEntryTime >= COOLDOWN_PERIOD) {
+            membershipCards[cardIndex].lastEntryTime = millis();
+            lcd.clear();
+            lcd.print("Welcome, ");
+            lcd.print(membershipCards[cardIndex].name);
+            Serial.print("Access granted for ");
+            Serial.println(membershipCards[cardIndex].name);
+            digitalWrite(ACCESS_GRANTED_PIN, HIGH);
+            delay(500);
+            digitalWrite(ACCESS_GRANTED_PIN, LOW);
+            lcd.print("-SCAN CARD HERE-");
+          } else {
+            unsigned long remainingTime = COOLDOWN_PERIOD - (millis() - membershipCards[cardIndex].lastEntryTime);
+            lcd.clear();
+            lcd.print("Card Cooldown.");
+            Serial.print("ACCESS DENIED: Card is on cooldown for ");
+            Serial.print(remainingTime / 60000);
+            Serial.print("m ");
+            Serial.print((remainingTime % 60000) / 1000);
+            Serial.println("s.");
+            delay(3000);
+            lcd.clear();
+            lcd.print("-SCAN CARD HERE-");
+          }
+        } else {
+          lcd.clear();
+          lcd.print("Membership Not Valid.");
+          Serial.print("MEMBERSHIP IS NO LONGER VALID. Current Month: ");
+          if (CURRENT_MONTH < 10) {
+            Serial.print("0");
+          }
+          Serial.print(CURRENT_MONTH);
+          Serial.print("/");
+          if (CURRENT_YEAR < 10) {
+            Serial.print("0");
+          }
+          Serial.print(CURRENT_YEAR);
+          Serial.print(", Membership Last Updated: ");
+          if (membershipCards[cardIndex].validMonth < 10) {
+            Serial.print("0");
+          }
+          Serial.print(membershipCards[cardIndex].validMonth);
+          Serial.print("/");
+          if (membershipCards[cardIndex].validYear < 10) {
+            Serial.print("0");
+          }
+          Serial.println(membershipCards[cardIndex].validYear);
+          delay(3000);
+          lcd.clear();
+          lcd.print("-SCAN CARD HERE-");
+        }
+      } else {
+        lcd.clear();
+        lcd.print("Access Denied.");
+        delay(2000);
+        lcd.clear();
+        lcd.print("-SCAN CARD HERE-");
+      }
+    }
+  }
+
+  // Command handling for staff
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    if (command.startsWith("info")) {
+      Serial.println("SCAN CARD TO INFO");
+      if (readCard(readCardUID)) {
+        int cardIndex = findMembershipCard(readCardUID);
+        if (cardIndex != -1) {
+          Serial.print("Card Power: ");
+          if (compareUID(membershipCards[cardIndex].uid, masterCard)) {
+            Serial.println("master");
+          } else if (compareUID(membershipCards[cardIndex].uid, adminCard)) {
+            Serial.println("admin");
+          } else {
+            Serial.println("member");
+          }
+          if (compareUID(membershipCards[cardIndex].uid, masterCard) || compareUID(membershipCards[cardIndex].uid, adminCard)) {
+            Serial.println("Membership Status: none");
+          } else {
+            if (membershipCards[cardIndex].validMonth == 0 && membershipCards[cardIndex].validYear == 0) {
+              Serial.print("Membership Status: expired last active: ");
+              Serial.println(membershipCards[cardIndex].lastEntryTime);
+            } else {
+              Serial.println("Membership Status: active");
+            }
+          }
+          Serial.print("Name: ");
+          Serial.println(membershipCards[cardIndex].name);
+        } else {
+          Serial.println("Card not found.");
+        }
+      }
+    } else if (command.startsWith("name")) {
+      Serial.println("SCAN CARD TO NAME");
+      if (readCard(readCardUID)) {
+        int cardIndex = findMembershipCard(readCardUID);
+        if (cardIndex != -1) {
+          Serial.print("Enter new name for ");
+          Serial.println(membershipCards[cardIndex].name);
+          while (Serial.available() <= 0);
+          String newName = Serial.readStringUntil('\n');
+          newName.toCharArray(membershipCards[cardIndex].name, sizeof(membershipCards[cardIndex].name));
+          Serial.print("Name updated to: ");
+          Serial.println(membershipCards[cardIndex].name);
+        } else {
+          Serial.println("Card not found.");
+        }
+      }
+    } else if (command.startsWith("membership status")) {
+      Serial.println("SCAN CARD TO MEMBERSHIP STATUS");
+      if (readCard(readCardUID)) {
+        int cardIndex = findMembershipCard(readCardUID);
+        if (cardIndex != -1) {
+          if (compareUID(membershipCards[cardIndex].uid, masterCard) || compareUID(membershipCards[cardIndex].uid, adminCard)) {
+            Serial.println("Cannot change membership status for master or admin card.");
+          } else {
+            Serial.println("Would you like to end this membership early? (Y/N)");
+            while (Serial.available() <= 0);
+            char response = Serial.read();
+            if (response == 'Y' || response == 'y') {
+              membershipCards[cardIndex].validMonth = 0;
+              membershipCards[cardIndex].validYear = 0
+;
+Serial.println(“Membership ended.”);
+} else {
+Serial.println(“Membership status unchanged.”);
+}
+}
+} else {
+Serial.println(“Card not found.”);
+}
+}
+} else if (command.startsWith(“renew”)) {
+Serial.println(“SCAN CARD TO RENEW”);
+if (readCard(readCardUID)) {
+int cardIndex = findMembershipCard(readCardUID);
+if (cardIndex != -1) {
+membershipCards[cardIndex].validMonth = CURRENT_MONTH;
+membershipCards[cardIndex].validYear = CURRENT_YEAR;
+Serial.println(“Membership renewed.”);
+} else {
+Serial.println(“Card not found.”);
+}
+}
+}
+}
+}
+
+bool readCard(byte* uid) {
+if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
+return false;
+}
+
+for (byte i = 0; i < 4; i++) {
+uid[i] = mfrc522.uid.uidByte[i];
+}
+
+mfrc522.PICC_HaltA();
+mfrc522.PCD_StopCrypto1();
+return true;
+}
+
+bool compareUID(byte* uid1, byte* uid2) {
+for (byte i = 0; i < 4; i++) {
+if (uid1[i] != uid2[i]) {
+return false;
+}
+}
+return true;
+}
+
+int findMembershipCard(byte* uid) {
+for (int i = 0; i < membershipCardCount; i++) {
+if (compareUID(uid, membershipCards[i].uid)) {
+return i;
+}
+}
+return -1;
+}
+
+void addMembershipCard(byte* uid) {
+if (membershipCardCount < sizeof(membershipCards) / sizeof(membershipCards[0])) {
+membershipCards[membershipCardCount].lastEntryTime = 0;
+memcpy(membershipCards[membershipCardCount].uid, uid, 4);
+membershipCardCount++;
+Serial.println(“Membership card added.”);
+lcd.clear();
+lcd.print(“Membership card added.”);
+delay(2000);
+lcd.clear();
+lcd.print(”-SCAN CARD HERE-”);
+} else {
+Serial.println(“Membership limit reached.”);
+lcd.clear();
+lcd.print(“Membership limit reached.”);
+delay(2000);
+lcd.clear();
+lcd.print(”-SCAN CARD HERE-”);
+}
+}
+
+void toggleEntryState() {
+entryEnabled = !entryEnabled;
+if (entryEnabled) {
+Serial.println(“Terminal opened & ready.”);
+lcd.clear();
+lcd.print(”-SCAN CARD HERE-”);
+} else {
+Serial.println(“Terminal closed.”);
+lcd.clear();
+lcd.print(“Terminal closed.”);
+}
+}
+
+bool isEmptyCard(byte* uid) {
+for (int i = 0; i < 4; i++) {
+if (uid[i] != 0x00) {
+return false;
+}
+}
+return true;
+}
