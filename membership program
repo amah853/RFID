@@ -1,3 +1,6 @@
+/*
+Ahmad Mahrous Membership Code
+*/
 
 #include <SPI.h>
 #include <MFRC522.h>
@@ -55,7 +58,7 @@ void setup() {
   adminCardSet = !isEmptyCard(adminCard);
 
   if (!masterCardSet) {
-    Serial.println("Set master card");
+    Serial.println("Set operator card");
     setupInProgress = true;
   } else if (!adminCardSet) {
     Serial.println("Tap admin card");
@@ -73,9 +76,9 @@ void loop() {
       if (!masterCardSet) {
         EEPROM.put(0, readCardUID);
         masterCardSet = true;
-        Serial.println("Master card set.");
+        Serial.println("Operator card set.");
         lcd.clear();
-        lcd.print("Master card set.");
+        lcd.print("Operator Card Set.");
         delay(2000);
         lcd.clear();
         lcd.print("Tap admin card.");
@@ -90,9 +93,9 @@ void loop() {
           lcd.clear();
           lcd.print("System ready.");
         } else {
-          Serial.println("Admin cannot be master.");
+          Serial.println("Admin cannot be same as operator card.");
           lcd.clear();
-          lcd.print("Admin cannot be master.");
+          lcd.print("Admin cannot be OP.");
           delay(2000);
           lcd.clear();
           lcd.print("Tap admin card.");
@@ -107,11 +110,10 @@ void loop() {
     if (compareUID(readCardUID, masterCard)) {
       // Master card actions
       toggleEntryState();
-      // Implement logic here for clearing all memberships based on new requirements
     } else if (compareUID(readCardUID, adminCard)) {
       // Admin card actions
       lcd.clear();
-      lcd.print("Tap a card to add.");
+      lcd.print("Tap your membership card.");
       Serial.println("Tap a card to add.");
       if (readCard(readCardUID)) {
         addMembershipCard(readCardUID);
@@ -136,7 +138,7 @@ void loop() {
           } else {
             unsigned long remainingTime = COOLDOWN_PERIOD - (millis() - membershipCards[cardIndex].lastEntryTime);
             lcd.clear();
-            lcd.print("Card Cooldown.");
+            lcd.print("Access Denied.");
             Serial.print("ACCESS DENIED: Card is on cooldown for ");
             Serial.print(remainingTime / 60000);
             Serial.print("m ");
@@ -148,8 +150,8 @@ void loop() {
           }
         } else {
           lcd.clear();
-          lcd.print("Membership Not Valid.");
-          Serial.print("MEMBERSHIP IS NO LONGER VALID. Current Month: ");
+          lcd.print("Membership Not Valid");
+          Serial.print("MEMBERSHIP IS NO LONGER VAILD. Current Month: ");
           if (CURRENT_MONTH < 10) {
             Serial.print("0");
           }
@@ -176,6 +178,7 @@ void loop() {
       } else {
         lcd.clear();
         lcd.print("Access Denied.");
+        Serial.println("ACCESS DENIED: Card not recognized/not in system.");
         delay(2000);
         lcd.clear();
         lcd.print("-SCAN CARD HERE-");
@@ -203,7 +206,7 @@ void loop() {
             Serial.println("Membership Status: none");
           } else {
             if (membershipCards[cardIndex].validMonth == 0 && membershipCards[cardIndex].validYear == 0) {
-              Serial.print("Membership Status: expired last active: ");
+              Serial.print("Membership Status: expired. Last active: ");
               Serial.println(membershipCards[cardIndex].lastEntryTime);
             } else {
               Serial.println("Membership Status: active");
@@ -212,7 +215,7 @@ void loop() {
           Serial.print("Name: ");
           Serial.println(membershipCards[cardIndex].name);
         } else {
-          Serial.println("Card not found.");
+          Serial.println("Card not found in system.");
         }
       }
     } else if (command.startsWith("name")) {
@@ -232,40 +235,57 @@ void loop() {
         }
       }
     } else if (command.startsWith("membership status")) {
-      Serial.println("SCAN CARD TO MEMBERSHIP STATUS");
-      if (readCard(readCardUID)) {
-        int cardIndex = findMembershipCard(readCardUID);
-        if (cardIndex != -1) {
-          if (compareUID(membershipCards[cardIndex].uid, masterCard) || compareUID(membershipCards[cardIndex].uid, adminCard)) {
-            Serial.println("Cannot change membership status for master or admin card.");
-          } else {
-            Serial.println("Would you like to end this membership early? (Y/N)");
-            while (Serial.available() <= 0);
-            char response = Serial.read();
-            if (response == 'Y' || response == 'y') {
-              membershipCards[cardIndex].validMonth = 0;
-              membershipCards[cardIndex].validYear = 0
-;
-Serial.println(“Membership ended.”);
+      Serial.println("SCAN ADMIN CARD TO PROCEED");
+      if (readCard(readCardUID) && compareUID(readCardUID, adminCard)) {
+        Serial.println("SCAN CARD TO MEMBERSHIP STATUS");
+        if (readCard(readCardUID)) {
+          int cardIndex = findMembershipCard(readCardUID);
+          if (cardIndex != -1) {
+            if (compareUID(membershipCards[cardIndex].uid, masterCard) || compareUID(membershipCards[cardIndex].uid, adminCard)) {
+              Serial.println("Cannot change membership status for master or admin card.");
+            } else {
+              Serial.println("Would you like to end this membership early? (Y/N)");
+              while (Serial.available()<= 0);
+char response = Serial.read();
+if (response == 'Y' || response == 'y') {
+membershipCards[cardIndex].validMonth = 0;
+membershipCards[cardIndex].validYear = 0;
+Serial.println("Membership ended.");
 } else {
-Serial.println(“Membership status unchanged.”);
+Serial.println("Membership status unchanged.");
 }
 }
 } else {
-Serial.println(“Card not found.”);
+Serial.println("Card not found.");
 }
 }
-} else if (command.startsWith(“renew”)) {
-Serial.println(“SCAN CARD TO RENEW”);
+} else {
+Serial.println("Admin card not recognized or not tapped.");
+}
+} else if (command.startsWith("renew")) {
+Serial.println("SCAN ADMIN CARD TO PROCEED");
+if (readCard(readCardUID) && compareUID(readCardUID, adminCard)) {
+Serial.println("SCAN CARD TO RENEW");
 if (readCard(readCardUID)) {
 int cardIndex = findMembershipCard(readCardUID);
 if (cardIndex != -1) {
 membershipCards[cardIndex].validMonth = CURRENT_MONTH;
 membershipCards[cardIndex].validYear = CURRENT_YEAR;
-Serial.println(“Membership renewed.”);
+Serial.println("Membership renewed.");
 } else {
-Serial.println(“Card not found.”);
+Serial.println("Card not found.");
 }
+}
+} else {
+Serial.println("Admin card not recognized or not tapped.");
+}
+} else if (command.startsWith("end shift")) {
+Serial.println("END OF SHIFT INITIATED. TAP ADMIN CARD TO CLOSE TERMINAL");
+if (readCard(readCardUID) && compareUID(readCardUID, adminCard)) {
+toggleEntryState();
+Serial.println("Terminal closed. Tap admin card to reopen and set new operator card.");
+lcd.clear();
+lcd.print("Terminal closed.");
 }
 }
 }
@@ -308,32 +328,32 @@ if (membershipCardCount < sizeof(membershipCards) / sizeof(membershipCards[0])) 
 membershipCards[membershipCardCount].lastEntryTime = 0;
 memcpy(membershipCards[membershipCardCount].uid, uid, 4);
 membershipCardCount++;
-Serial.println(“Membership card added.”);
+Serial.println("Membership card added.");
 lcd.clear();
-lcd.print(“Membership card added.”);
+lcd.print("Membership card added.");
 delay(2000);
 lcd.clear();
-lcd.print(”-SCAN CARD HERE-”);
+lcd.print("-SCAN CARD HERE-");
 } else {
-Serial.println(“Membership limit reached.”);
+Serial.println("Membership limit reached.");
 lcd.clear();
-lcd.print(“Membership limit reached.”);
+lcd.print("Membership limit reached.");
 delay(2000);
 lcd.clear();
-lcd.print(”-SCAN CARD HERE-”);
+lcd.print("-SCAN CARD HERE-");
 }
 }
 
 void toggleEntryState() {
 entryEnabled = !entryEnabled;
 if (entryEnabled) {
-Serial.println(“Terminal opened & ready.”);
+Serial.println("Terminal opened and ready for use.");
 lcd.clear();
-lcd.print(”-SCAN CARD HERE-”);
+lcd.print("-SCAN CARD HERE-");
 } else {
-Serial.println(“Terminal closed.”);
+Serial.println("Terminal closed. Tap operator card to open.");
 lcd.clear();
-lcd.print(“Terminal closed.”);
+lcd.print("Terminal closed.");
 }
 }
 
@@ -345,3 +365,4 @@ return false;
 }
 return true;
 }
+                
